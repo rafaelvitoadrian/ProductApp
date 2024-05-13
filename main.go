@@ -14,13 +14,7 @@ import (
 )
 
 func init() {
-
-	// if err := godotenv.Load(".env"); err != nil {
-	// 	log.Fatal("Error in loading .env file.")
-	// }
-
 	database.ConnectDB()
-
 }
 
 func main() {
@@ -31,6 +25,7 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Post("/product/create", productcontroller.CreateProduct)
 	r.Get("/product", productcontroller.GetAll)
+
 	r.With(middlewares.APIKeyAuth).Get("/product/{id}", productcontroller.GetProductById)
 	r.Put("/product/update", productcontroller.UpdateProduct)
 

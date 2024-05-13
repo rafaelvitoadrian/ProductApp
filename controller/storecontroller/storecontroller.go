@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"product_app/database"
 	"product_app/model"
@@ -76,29 +77,116 @@ func GetStoreById(w http.ResponseWriter, r *http.Request) {
 
 }
 
+type ProductResponseStoreAll struct {
+	Id   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+type ResponseStoreAll struct {
+	Id      int                       `json:"id"`
+	Name    string                    `json:"name"`
+	Address string                    `json:"address"`
+	Product []ProductResponseStoreAll `json:"product"`
+}
+
 func GetAll(w http.ResponseWriter, r *http.Request) {
 
-	stmt_s := "SELECT * FROM store"
-	stmt, err := database.DBConn.Query(stmt_s)
+	storeRows, err := database.DBConn.Query("SELECT id, name, address FROM store")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		log.Fatal(err)
 	}
-	defer stmt.Close()
+	defer storeRows.Close()
 
-	var data []model.Store
+	storeDetails := make(map[int]struct {
+		name    string
+		address string
+	})
 
-	for stmt.Next() {
-		var d model.Store
-		err := stmt.Scan(&d.Id, &d.Name, &d.Address)
+	for storeRows.Next() {
+		var storeID int
+		var storeName, storeAddress string
+
+		err := storeRows.Scan(&storeID, &storeName, &storeAddress)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			log.Fatal(err)
 		}
-		data = append(data, d)
+
+		storeDetails[storeID] = struct {
+			name    string
+			address string
+		}{
+			name:    storeName,
+			address: storeAddress,
+		}
+
+		// fmt.Print(storeDetails[storeID])
+		// fmt.Println(" ")
+	}
+	if err := storeRows.Err(); err != nil {
+		log.Fatal(err)
 	}
 
-	err = json.NewEncoder(w).Encode(data)
+	productRows, err := database.DBConn.Query("SELECT s.id, p.id, p.name FROM store s LEFT JOIN product p ON s.id = p.id_store")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer productRows.Close()
+
+	storeProducts := make(map[int][]ProductResponseStoreAll)
+
+	for productRows.Next() {
+		var storeID, productID sql.NullInt64
+		var productName sql.NullString
+
+		var idStore int
+		var idProduct int
+		var nameProduct string
+
+		err := productRows.Scan(&storeID, &productID, &productName)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if storeID.Valid {
+			idStore = int(storeID.Int64)
+		}
+
+		if productID.Valid {
+			idProduct = int(productID.Int64)
+		}
+
+		if productName.Valid {
+			nameProduct = productName.String
+		}
+
+		storeProducts[idStore] = append(storeProducts[idStore], ProductResponseStoreAll{
+			Id:   idProduct,
+			Name: nameProduct,
+		})
+	}
+	if err := productRows.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	var responseStores []ResponseStoreAll
+	for storeID, products := range storeProducts {
+		storeDetail := storeDetails[storeID]
+
+		if products[0].Id == 0 {
+			products = make([]ProductResponseStoreAll, 0)
+		}
+
+		responseStore := ResponseStoreAll{
+			Id:      storeID,
+			Name:    storeDetail.name,
+			Address: storeDetail.address,
+			Product: products,
+		}
+		responseStores = append(responseStores, responseStore)
+	}
+
+	err = json.NewEncoder(w).Encode(responseStores)
+
 }
 
 type StoreCreateRequest struct {
